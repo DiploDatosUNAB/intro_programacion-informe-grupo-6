@@ -1,36 +1,243 @@
 ---
-title: "titulo"
-author: "nombres"
-output: html_document
+title: "TP 1"
+author: "Joaquín Gueler"
+date: '2022-08-15'
+output:
+  html_document:
+    df_print: paged
 ---
-
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-# Cargar los paquetes necesarios acá
+library(tidyverse)
+library(sf)
+library(lubridate)
 ```
 
+## Análisis explotario de sus estaciones en el año 2019
 
-## Introducción
+Para el análisis de las estaciones de biciclestas públicas utilizaré dos dataset en formato  csv, el primero cuenta con información sobre las estaciones como  su identificador , su capacidad y sus coordenas geográficas; el segundo cuenta con información sobre el uso  dichas estaciones el 24 de julio del 2019. Para complementar el analisis utilizaré un geojson de los barrios de la Ciudad de Buenos Aire con el fin de poder mapear las estaciones y observar su distribución por barrio.    
 
 
+##### Fuentes de datos:
+```{r cars, results = 'hide'}
+estaciones <- read.csv("datos/estaciones.csv") 
+uso_estaciones <- read.csv("datos/bicis_muestra.csv")
+barrios <- st_read("https://cdn.buenosaires.gob.ar/datosabiertos/datasets/ministerio-de-educacion/barrios/barrios.geojson", stringsAsFactors = FALSE)
+```
 
-## Exploración de los datos
+### Estaciones
+El dataset "estaciones" está compuesto por  399 estaciones de las cuales nos brinda su identificador único, su longitud, su latitud y su capacidad de bicicletas.
+
+```{r}
+head(estaciones, 20)
+
+```
 
 
 ```{r}
-# Código para cargar o leer los datos
+
+sapply(estaciones, function(columna) sum(is.na(columna)))
+
+          
 ```
+
+el código anterior nos permite contar la cantidad de valores faltantes por columna(Na), en este caso se puede observar que el dataset  no tiene valores perdidos.  
+
+
+
 
 
 
 ```{r}
-# Cödigo de R acá 
-# Agregá más bloques según sea necesario
+# función para obtener la moda 
+getmode <- function(v) {
+   uniqv <- unique(v)
+   uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+```
+
+De la columna capacidad podemos calcular los siguientes valores:
+```{r}
+estaciones %>%  summarise("Media" = round(mean(capacidad),2),
+                          "Mediana" = median(capacidad),
+                          "Moda" = getmode(capacidad),
+                          "Desvio Estandar" = round(sd(capacidad),2),
+                          "Máximo" = max(capacidad),
+                          "Mínimo" = min(capacidad)) %>% 
+                          gather(key = "Medidas resumen",value = "Capacidad",1:6)
+```
+
+
+```{r}
+ggplot(estaciones, aes(x = capacidad)) +
+  geom_freqpoly(bins=10) +
+  geom_vline(aes(xintercept = mean(`capacidad`), color="Promedio") ,
+             linetype="dotted", 
+             size= 1) +
+  scale_color_manual(values = c("Promedio" = "blue")) +
+  labs( y = NULL,
+        x = "Capacidad",
+        color = NULL,
+        caption = "Fuente: Elaboración propia en base a DATA Buenos Aires Ciudad")
+```
+
+En base a la tabla y al gráfico de frecuencias podemos ver que aunque son muy similares la media, la mediana y la moda , la distribución tiene un pequeño sesgo hacia la izquierda en tanto que el promedio es menor a la mediana. Esto ocurre porque hay valores con puntuaciones muy altas. 
+
+
+
+Ahora dividiremos las estaciones dependiente su capacidad y las refenciamos en un mapa de cordenadas
+
+```{r}
+estaciones <-  estaciones %>% 
+                mutate(capacidad_est = 
+                        case_when( capacidad < 17 ~ "Capacidad baja (de 10 a 16 bicicletas)",
+                        capacidad < 24 ~ "Capacidad media (de 17 a 23 bicicletas)",
+                        TRUE           ~ "Capacidad alta (24 bicicletas y más)"),
+                       capacidad_est = factor(capacidad_est, 
+                                              levels = c("Capacidad alta (24 bicicletas y más)",
+                                                         "Capacidad media (de 17 a 23 bicicletas)",
+                                                         "Capacidad baja (de 10 a 16 bicicletas)")))
+
+```
+ 
+
+```{r, results = 'hide'}
+
+puntos_estaciones <- ggplot() +
+                     geom_sf(data = barrios,
+                             color = "grey") +
+                     geom_point(data= estaciones,
+                                aes(x = lon, y = lat, color= capacidad_est),
+                                size = 2.5 , alpha = .3) +
+                     labs( title = "Capacidad de las estaciones de bicicletas públicas", 
+                          subtitle = "Para la Ciudad de Buenos Aires en el año 2019",
+                          color = "Capacidad estaciones",
+                          x = "Longitud",
+                          y = "Latitud",
+                          caption = "Fuente: Elaboración propia en base a DATA Buenos Aires Ciudad")
+
+```
+
+
+```{r,echo=FALSE}
+puntos_estaciones
 ```
 
 
 
-## Hipótesis
 
 
+
+
+
+
+Podemos ajustar en base a la longitud y la latitud de las estaciones el zoom del mapa para tener una imagen más precisa.
+
+```{r}
+min_long <- min(estaciones$lon)
+max_long <- max(estaciones$lon)
+min_lat <- min(estaciones$lat)
+max_lat <- max(estaciones$lat)
+
+```
+
+
+```{r}
+puntos_estaciones +
+  coord_sf(xlim = c(min_long, max_long),  ylim = c(min_lat, max_lat))
+
+
+```
+
+## Distribución por barrio
+
+Para poder observar la distribución de estaciones por barrio hay que vincular el dataset "estaciones" al geojson "barrios" a través de un join espacial:
+```{r}
+# transformar el dataset en un objeto espacial 
+estaciones_obj <- st_as_sf(estaciones,
+                            coords = c("lon","lat"),
+                           crs = 4326)
+# realizar el join y guardarlo en el objeto barrio_summary
+barrio_summary <- barrios %>% 
+                  mutate(cantidad_estaciones = lengths(st_intersects(., estaciones_obj)))
+```
+Ahora sí podemos mapear la distribución :
+
+```{r pressure}
+ggplot() +
+  geom_sf(data = barrio_summary,aes(fill = cantidad_estaciones))  +
+  scale_fill_viridis_c()+
+  labs(title = "Cantidad de estaciones por barrio", 
+       subtitle = "Para la Ciudad de Buenos Aires en el año 2019",
+       fill = "Cantidad de estaciones",
+       x = "Longitud",
+       y = "Latitud",
+       caption = "Fuente: Elaboración propia en base a DATA Buenos Aires Ciudad")
+```
+
+Lo que nos muesta el mapa es que la mayor cantidad de estaciones de concentrar en los barrios del noreste y el centro de la ciudad, siendo Palermo el barrio con más estaciones. Tambien se observa que los barrios del sudoeste tiene muy pocas o ninguna estación. 
+
+
+```{r}
+barrio_summary %>% 
+filter(cantidad_estaciones > mean(cantidad_estaciones)) %>%
+ ggplot(aes(x =reorder(BARRIO, cantidad_estaciones), 
+            y = cantidad_estaciones, 
+            fill = cantidad_estaciones,
+            label = cantidad_estaciones)) +
+  geom_col() +
+  geom_text(nudge_y = 1.5) + 
+  coord_flip() +
+  scale_fill_viridis_c()+
+  labs(title = "Barrios con más estaciones que la media", 
+       subtitle = "Para la Ciudad de Buenos Aires en el año 2019",
+       fill = "Cantidad de estaciones",
+       x = "Barrios",
+       y = "Estaciones",
+       caption = "Fuente: Elaboración propia en base a DATA Buenos Aires Ciudad")
+```
+
+
+### Uso estaciones
+El dataset "uso_estaciones" está compuesto por  107.177 filas que describen el estado de las estaciones a lo largo de un día en terminos de bicicletas y espacios disponibles  asi como también su estado.
+
+```{r}
+head(uso_estaciones,20)
+```
+```{r}
+
+sapply(uso_estaciones, function(columna) sum(is.na(columna)))
+```
+En base al dataset  podemos combinarlo con el geojson y analizar el uso de las bicicletas por barrio a lo largo del día: 
+
+```{r,results = 'hide'}
+prueba <- estaciones_obj %>% st_join(.,barrios) %>% 
+                  select(id_estacion,BARRIO,capacidad) %>%  
+                  inner_join(uso_estaciones) %>% 
+                  group_by(BARRIO,hora) %>% 
+                    summarise(espacios = sum(espacios_disponibles),
+                              capacidad = sum(capacidad),
+                              promedio  = mean(espacios)) %>% 
+                    mutate(capacidad_uso  = promedio/capacidad * 100,
+                           barrio = as.factor(BARRIO)) %>% 
+                    select(barrio,hora,capacidad_uso)
+
+                    
+```
+
+```{r}
+                    prueba %>%  filter(!is.na(barrio)) %>%
+                                filter(hora > 5) %>% 
+                    ggplot(aes(hora, barrio, fill= capacidad_uso)) + 
+                          geom_tile() +
+                          scale_fill_viridis_c()+
+     labs(title = "Uso medio por hora de las bicicletas públicas por barrio", 
+       subtitle = "a partir de las 5 AM en la Ciudad de Buenos Aires en el año 2019",
+       fill = "Bicicletas en uso(%)",
+       x = "Hora",
+       y = NULL,
+       caption = "Fuente: Elaboración propia en base a DATA Buenos Aires Ciudad")
+                          
+```
