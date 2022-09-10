@@ -1,7 +1,9 @@
+
 ---
-title: "TP 1"
+title: "Bicicletas púlbicas de la Cuidad de Buenos Aires"
 author: "Joaquín Gueler"
-date: '2022-08-15'
+
+date: '2022-09-10'
 output:
   html_document:
     df_print: paged
@@ -12,6 +14,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(sf)
 library(lubridate)
+library(stringi)
 ```
 
 ## Análisis explotario de sus estaciones en el año 2019
@@ -21,8 +24,8 @@ Para el análisis de las estaciones de biciclestas públicas utilizaré dos data
 
 ##### Fuentes de datos:
 ```{r cars, results = 'hide'}
-estaciones <- read.csv("datos/estaciones.csv") 
-uso_estaciones <- read.csv("datos/bicis_muestra.csv")
+estaciones <- read.csv("estaciones.csv") 
+uso_estaciones <- read.csv("bicis_muestra.csv")
 barrios <- st_read("https://cdn.buenosaires.gob.ar/datosabiertos/datasets/ministerio-de-educacion/barrios/barrios.geojson", stringsAsFactors = FALSE)
 ```
 
@@ -161,7 +164,8 @@ estaciones_obj <- st_as_sf(estaciones,
                            crs = 4326)
 # realizar el join y guardarlo en el objeto barrio_summary
 barrio_summary <- barrios %>% 
-                  mutate(cantidad_estaciones = lengths(st_intersects(., estaciones_obj)))
+                  mutate(cantidad_estaciones = lengths(st_intersects(., estaciones_obj)),
+                         AREA = round(AREA/1000000,2))
 ```
 Ahora sí podemos mapear la distribución :
 
@@ -199,6 +203,63 @@ filter(cantidad_estaciones > mean(cantidad_estaciones)) %>%
        caption = "Fuente: Elaboración propia en base a DATA Buenos Aires Ciudad")
 ```
 
+
+### Hipotesis 
+
+Nuestra hipotesis es que dicha distribución  se relaciona con la población de los barios, por lo tanto suponemos que a mayor población mayor es la cantidad de estaciones. 
+
+Para ello Primero hay que calcular la densidad poblacional de cada barrio, utilizando datos de radios censales agrupados por el barrio :
+```{r,results = 'hide'}
+
+poblacion <-  read_csv("pob barrios de caba.csv") 
+
+poblacion <-  poblacion %>%
+              mutate(  BARRIO = stri_trans_general(str = `Localidad`,id = "Latin-ASCII"),
+                       BARRIO = toupper(BARRIO),
+                       BARRIO = case_when(BARRIO == "LA BOCA" ~ "BOCA",
+                                          BARRIO == "NUNEZ"~ "NUÑEZ",
+                                          TRUE ~ BARRIO)) %>% 
+             select(BARRIO,`Total población`)
+
+```
+
+```{r,results = 'hide'}
+
+barrio_summary <- barrio_summary %>% 
+                  inner_join(.,poblacion, by = "BARRIO") %>% 
+                  mutate(densidad = trunc(`Total población`/AREA))
+
+```
+
+
+```{r}
+ggplot() +
+  geom_sf(data = barrio_summary,aes(fill = densidad))  +
+  scale_fill_viridis_c()+
+  labs(title = "Densidad poblacional por barrio", 
+       subtitle = "Para la Ciudad de Buenos Aires",
+       fill = "Densidad poblacional por kilometro cuadrado ",
+       x = "Longitud",
+       y = "Latitud",
+       caption = "Fuente: Elaboración propia en base a datos de censo 2010")
+```
+
+Se observa que los barrios del centro de la ciudad son los más densamente poblabados seguidos por los barrios del norte. 
+
+```{r}
+ggplot(barrio_summary,aes(densidad,cantidad_estaciones )) +
+  geom_point() +
+  geom_smooth(method='lm') +
+   labs(title = "Relación entre la densidad poblacional y cantidad de estaciones", 
+       subtitle = "Para la Ciudad de Buenos Aires en el año 2019",
+       fill = "Densidad poblacional",
+       x = "Densidad poblacional",
+       y = "Cantidad de estaciones",
+       caption = "Fuente: Elaboración propia en base a DATA Buenos Aires Ciudad")
+
+```
+
+Podemos observar que aunque existe una relación positiva entre densidad poblacional y cantidad de estaciones, la dispersión es muy alta por lo que no podemos asumir una relación directa entre las dos variables. Los barrios con mayor cantidad de estaciones no son los más densamente poblados (Almagro y Balvanera), dicho hallazgo se puede atribuir a que las estaciones se colocan en función de otras variables como pueden ser la cantidad de parques  o las actividades económicas preponderantes. 
 
 ### Uso estaciones
 El dataset "uso_estaciones" está compuesto por  107.177 filas que describen el estado de las estaciones a lo largo de un día en terminos de bicicletas y espacios disponibles  asi como también su estado.
@@ -241,3 +302,5 @@ prueba <- estaciones_obj %>% st_join(.,barrios) %>%
        caption = "Fuente: Elaboración propia en base a DATA Buenos Aires Ciudad")
                           
 ```
+
+
