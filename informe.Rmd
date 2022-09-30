@@ -24,8 +24,8 @@ Para el análisis de las estaciones de biciclestas públicas utilizaré dos data
 
 ##### Fuentes de datos:
 ```{r cars, results = 'hide'}
-estaciones <- read.csv("estaciones.csv") 
-uso_estaciones <- read.csv("bicis_muestra.csv")
+estaciones <- read.csv("datos/estaciones.csv") 
+uso_estaciones <- read.csv("datos/bicis_muestra.csv")
 barrios <- st_read("https://cdn.buenosaires.gob.ar/datosabiertos/datasets/ministerio-de-educacion/barrios/barrios.geojson", stringsAsFactors = FALSE)
 ```
 
@@ -211,7 +211,7 @@ Nuestra hipotesis es que dicha distribución  se relaciona con la población de 
 Para ello Primero hay que calcular la densidad poblacional de cada barrio, utilizando datos de radios censales agrupados por el barrio :
 ```{r,results = 'hide'}
 
-poblacion <-  read_csv("pob barrios de caba.csv") 
+poblacion <-  read_csv("datos/pob barrios de caba.csv") 
 
 poblacion <-  poblacion %>%
               mutate(  BARRIO = stri_trans_general(str = `Localidad`,id = "Latin-ASCII"),
@@ -302,5 +302,62 @@ prueba <- estaciones_obj %>% st_join(.,barrios) %>%
        caption = "Fuente: Elaboración propia en base a DATA Buenos Aires Ciudad")
                           
 ```
+## viajes en el año 
 
+
+```{r,results = 'hide'}
+viajes <-  read.csv(file = "datos/recorridos-realizados-2019/recorridos-realizados-2019.csv")
+
+```
+el dateset recorridos-realizados-2019.csv tiene la información de todos los viajes que se hicieron en el 2019 siento un total de 6.275.957.
+```{r}
+head(viajes,20)
+
+```
+## Hipótesis 
+
+los usuarios del sistema realizan más viajes en los meses más calidos ya que el clima propicia mejores condiciones para andar en bicicleta.
+
+
+```{r}
+viajes <-  viajes %>% 
+  mutate(mes = month(fecha_origen_recorrido),
+         mes = case_when(mes == 1 ~ "enero",
+                         mes == 2 ~ "febrero",
+                         mes == 3 ~ "marzo",
+                         mes == 4 ~ "abril",
+                         mes == 5 ~ "mayo",
+                         mes == 6 ~ "junio",
+                         mes == 7 ~ "julio",
+                         mes == 8 ~ "agosto",
+                         mes == 9 ~ "septiembre",
+                         mes == 10 ~ "octubre",
+                         mes == 11 ~ "noviembre",
+                         mes == 12 ~ "diciembre"),
+         mes = factor(mes, levels = c("enero","febrero","marzo",
+                                      "abril","mayo","junio",
+                                      "julio","agosto","septiembre",
+                                      "octubre","noviembre","diciembre")))
+```
+
+
+```{r}
+ viajes %>% group_by(mes) %>% 
+  summarise(cantidad_viajes = n()) %>% 
+ggplot(data=. ,aes(x=mes,y=cantidad_viajes, group = 1)) +
+  geom_line()+
+  geom_hline(aes(yintercept=mean(cantidad_viajes)), linetype="dashed", color = "red")+
+  labs(title = "Cantidad de viajes por mes en el 2019 ", 
+       subtitle = "comparado con el promedio de viajes por mes (línea roja)",
+       x = NULL,
+       y = NULL,
+       caption = "Fuente: Elaboración propia en base a DATA Buenos Aires Ciudad")
+
+```
+Analizando el gráfico, en principio, podemos observar que la hipótesis queda descartada ya que en todo el invierno(junio,julio,agosto y septiembre) la cantidad de viajes está por arriba del promedio  y es julio el mes con más viajes de todo el año.
+```{r}
+viajes %>% group_by(mes) %>% 
+  summarise(cantidad_viajes = n()) %>% 
+  arrange(desc(cantidad_viajes))
+```
 
